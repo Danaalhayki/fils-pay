@@ -39,6 +39,14 @@ export interface Config {
   acquirerLatencyMaxMs: number;
   acquirerFailureRate: number;
   acquirerRngSeed: number | null;
+  /** Entries kept per in-memory simulator idempotency cache (oldest dropped). */
+  acquirerIdempotencyCacheSize: number;
+
+  /** Load shedding (plugins/overload.ts): past any of these the API answers
+   *  503 + Retry-After at once instead of queueing. 0 disables that check. */
+  overloadMaxInFlight: number;
+  overloadMaxDbWaiting: number;
+  overloadMaxEventLoopDelayMs: number;
 
   cookieName: string;
   cookieSecure: boolean;
@@ -147,6 +155,14 @@ function parsePositiveIntEnv(name: string, value: string | undefined, fallback: 
   const parsed = parseIntEnv(value, fallback);
   if (parsed <= 0) {
     throw new Error(`loadConfig: ${name} must be a positive integer, got "${value}"`);
+  }
+  return parsed;
+}
+
+function parseNonNegativeIntEnv(name: string, value: string | undefined, fallback: number): number {
+  const parsed = parseIntEnv(value, fallback);
+  if (parsed < 0) {
+    throw new Error(`loadConfig: ${name} must be 0 or more, got "${value}"`);
   }
   return parsed;
 }
@@ -263,6 +279,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       env.ACQUIRER_RNG_SEED !== undefined && env.ACQUIRER_RNG_SEED !== ""
         ? parseIntEnv(env.ACQUIRER_RNG_SEED, 0)
         : null,
+    acquirerIdempotencyCacheSize: parsePositiveIntEnv(
+      "ACQUIRER_IDEMPOTENCY_CACHE_SIZE",
+      env.ACQUIRER_IDEMPOTENCY_CACHE_SIZE,
+      10_000,
+    ),
+
+    overloadMaxInFlight: parseNonNegativeIntEnv("OVERLOAD_MAX_IN_FLIGHT", env.OVERLOAD_MAX_IN_FLIGHT, 256),
+    overloadMaxDbWaiting: parseNonNegativeIntEnv("OVERLOAD_MAX_DB_WAITING", env.OVERLOAD_MAX_DB_WAITING, 64),
+    // Off under test: a slow CI box must not turn route tests into 503s.
+    overloadMaxEventLoopDelayMs: parseNonNegativeIntEnv(
+      "OVERLOAD_MAX_EVENT_LOOP_DELAY_MS",
+      env.OVERLOAD_MAX_EVENT_LOOP_DELAY_MS,
+      nodeEnv === "test" ? 0 : 500,
+    ),
 
     cookieName: env.COOKIE_NAME ?? "fp_sid",
     cookieSecure: parseBoolEnv(env.COOKIE_SECURE, nodeEnv === "production"),

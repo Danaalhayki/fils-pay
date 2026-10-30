@@ -1,0 +1,13 @@
+# TLS in front of the web container (compose profile "https").
+# SITE_HOST is a hostname that resolves to this server, e.g.
+# 157-245-99-130.sslip.io; Caddy obtains its certificate automatically.
+# Merchant dashboard + checkout on 443, admin console on 8443 of the same
+# host, so the admin's "view as merchant" cookie reaches the dashboard.
+
+{$SITE_HOST} {
+	reverse_proxy web:8080
+}
+
+{$SITE_HOST}:8443 {
+	reverse_proxy web:8081
+}

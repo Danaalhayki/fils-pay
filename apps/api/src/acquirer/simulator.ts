@@ -70,7 +70,21 @@ function seededRandomSource(seed: number): RandomSource {
 type SimulatorConfig = Pick<
   Config,
   "acquirerLatencyMinMs" | "acquirerLatencyMaxMs" | "acquirerFailureRate" | "acquirerRngSeed"
->;
+> &
+  Partial<Pick<Config, "acquirerIdempotencyCacheSize">>;
+
+const DEFAULT_IDEMPOTENCY_CACHE_SIZE = 10_000;
+
+/** Insert-ordered Map as a FIFO: once full, the oldest key is dropped. The
+ *  durable idempotency record is the idempotency_keys table; this cache only
+ *  has to cover a retry that arrives shortly after the first call. */
+function remember<T>(cache: Map<string, T>, key: string, value: T, maxEntries: number): void {
+  if (cache.size >= maxEntries) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, value);
+}
 
 /**
  * In-process simulated acquirer. Lives in `apps/api` rather than a separate
@@ -79,10 +93,9 @@ type SimulatorConfig = Pick<
  * call, at zero extra RAM/CPU cost — a meaningful saving under the 0.5 vCPU
  * / 512 MB budget for the whole platform.
  */
-// the idempotency maps never get cleared, slow leak? — am
-// MK: cleared on restart and we deploy daily. not a leak
 export function createAcquirerSimulator(config: SimulatorConfig): AcquirerSimulator {
   const random = config.acquirerRngSeed !== null ? seededRandomSource(config.acquirerRngSeed) : cryptoRandomSource();
+  const maxCached = Math.max(1, config.acquirerIdempotencyCacheSize ?? DEFAULT_IDEMPOTENCY_CACHE_SIZE);
 
   // In-process idempotency caches, one per operation. A retried call with
   // the same idempotency key returns the cached result unchanged rather
@@ -133,7 +146,7 @@ export function createAcquirerSimulator(config: SimulatorConfig): AcquirerSimula
         ...(rolled.declineReason !== undefined ? { declineReason: rolled.declineReason } : {}),
         latencyMs,
       };
-      authorizeCache.set(req.idempotencyKey, result);
+      remember(authorizeCache, req.idempotencyKey, result, maxCached);
       return result;
     },
 
@@ -149,7 +162,7 @@ export function createAcquirerSimulator(config: SimulatorConfig): AcquirerSimula
         acquirerReference: req.acquirerReference,
         latencyMs,
       };
-      captureCache.set(req.idempotencyKey, result);
+      remember(captureCache, req.idempotencyKey, result, maxCached);
       return result;
     },
 
@@ -165,7 +178,7 @@ export function createAcquirerSimulator(config: SimulatorConfig): AcquirerSimula
         acquirerReference: req.acquirerReference,
         latencyMs,
       };
-      refundCache.set(req.idempotencyKey, result);
+      remember(refundCache, req.idempotencyKey, result, maxCached);
       return result;
     },
   };

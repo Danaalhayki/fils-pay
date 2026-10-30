@@ -69,14 +69,27 @@ services:
 
   api:
     <<: *node-service
-    command: ["npx", "tsx", "apps/api/src/index.ts"]
+    # One node process (no npx/tsx wrappers) under tini, so the watchdog in
+    # the healthcheck can kill it and SIGTERM reaches the graceful shutdown.
+    command: ["sh", "-c", "rm -f /tmp/hc_fail; exec node --import tsx apps/api/src/index.ts"]
+    init: true
+    # The brief's budget for the api: 0.5 vCPU, 512 MB.
+    cpus: 0.5
     mem_limit: 512m
+    memswap_limit: 512m
+    stop_grace_period: 20s
     ports:
       - "127.0.0.1:${API_HOST_PORT:-3000}:3000"
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: "3000"
       DATABASE_URL: *database-url
+      # V8 gives up (and the container restarts) before the cgroup OOM-kills it.
+      NODE_OPTIONS: --max-old-space-size=320
+      PG_POOL_MAX: ${PG_POOL_MAX:-20}
+      OVERLOAD_MAX_IN_FLIGHT: ${OVERLOAD_MAX_IN_FLIGHT:-}
+      OVERLOAD_MAX_DB_WAITING: ${OVERLOAD_MAX_DB_WAITING:-}
+      OVERLOAD_MAX_EVENT_LOOP_DELAY_MS: ${OVERLOAD_MAX_EVENT_LOOP_DELAY_MS:-}
       # nginx (web service) is one hop; add one per terminator in front of it.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       SETTLEMENT_INTERNAL_URL: http://settlement:8091
@@ -89,11 +102,22 @@ services:
       KYC_UPLOAD_DIR: /app/data/kyc
     volumes:
       - kyc_uploads:/app/data/kyc
+    # Docker only restarts containers that exit, not ones that hang. Three
+    # failed liveness probes in a row kill the node process; tini then exits
+    # and `restart: unless-stopped` brings a fresh one up. /healthz never
+    # touches the database and is exempt from load shedding, so a busy or
+    # DB-starved api is not mistaken for a hung one.
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/readyz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:3000/healthz',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+          && rm -f /tmp/hc_fail
+          || { n=$$(( $$(cat /tmp/hc_fail 2>/dev/null || echo 0) + 1 )); echo $$n > /tmp/hc_fail; [ $$n -lt 3 ] || kill -9 -1; exit 1; }
       interval: 10s
-      timeout: 5s
-      retries: 6
+      timeout: 6s
+      retries: 3
+      start_period: 20s
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -113,7 +137,9 @@ services:
 
   reporting:
     <<: *node-service
-    command: ["npx", "tsx", "apps/reporting/src/index.ts"]
+    command: ["node", "--import", "tsx", "apps/reporting/src/index.ts"]
+    init: true
+    mem_limit: 256m
     environment:
       DATABASE_URL: *database-url
     depends_on:
@@ -137,6 +163,30 @@ services:
       api:
         condition: service_healthy
 
+  # TLS terminator for a hosted box: `docker compose --profile https up -d`
+  # with SITE_HOST set (ops/DEPLOY.md). Off by default so a laptop `up`
+  # never tries to obtain certificates.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    mem_limit: 128m
+    environment:
+      SITE_HOST: ${SITE_HOST:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8443:8443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_started
+
 volumes:
   filspay_pgdata:
   kyc_uploads:
+  caddy_data:
+  caddy_config:

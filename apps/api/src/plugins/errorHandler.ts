@@ -10,6 +10,8 @@ import { formatIsoDate } from "../lib/dateFormat.js";
 /** invalid_text_representation, numeric_value_out_of_range, invalid_datetime_format, datetime_field_overflow. */
 const PG_INVALID_INPUT_CODES = new Set(["22P02", "22003", "22007", "22008"]);
 
+const PG_POOL_TIMEOUT_MESSAGE = "timeout exceeded when trying to connect";
+
 export function errorHandler(
   err: FastifyError | Error,
   request: FastifyRequest,
@@ -46,6 +48,14 @@ export function errorHandler(
   if (PG_INVALID_INPUT_CODES.has(fastifyErr.code)) {
     request.log.warn({ err }, "invalid input rejected by postgres");
     reply.code(400).send({ error: "invalid_input" });
+    return;
+  }
+
+  // pg-pool gave up waiting for a free connection: the database is saturated,
+  // not broken, and nothing was written, so the client may retry.
+  if (err.message === PG_POOL_TIMEOUT_MESSAGE) {
+    request.log.warn("database pool exhausted");
+    reply.code(503).header("Retry-After", "1").send({ error: "overloaded", reason: "db_pool_timeout" });
     return;
   }
 

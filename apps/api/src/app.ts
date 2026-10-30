@@ -5,6 +5,7 @@ import { createAcquirerSimulator } from "./acquirer/simulator.js";
 import { cookiesPlugin } from "./plugins/cookies.js";
 import { multipartPlugin } from "./plugins/multipart.js";
 import { errorHandler } from "./plugins/errorHandler.js";
+import { overloadPlugin } from "./plugins/overload.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { businessProfileRoutes } from "./routes/businessProfile.js";
@@ -52,6 +53,14 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
     options.webhookTransport ?? createFetchTransport({ allowPrivateNetwork: config.nodeEnv !== "production" }),
   );
 
+  app.register(overloadPlugin, {
+    pool,
+    limits: {
+      maxInFlight: config.overloadMaxInFlight,
+      maxDbWaiting: config.overloadMaxDbWaiting,
+      maxEventLoopDelayMs: config.overloadMaxEventLoopDelayMs,
+    },
+  });
   app.register(cookiesPlugin);
   app.register(multipartPlugin, { config });
   app.setErrorHandler(errorHandler);

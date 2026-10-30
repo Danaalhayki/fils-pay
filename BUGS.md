@@ -16,7 +16,7 @@ Status column: ✅ fixed in this branch, ⏳ pending.
 
 | Status | IDs |
 |---|---|
-| ✅ fixed | D-01 (files rewritten), D-02 (ignored), D-03 … D-08, S-01 … S-14, S-15 (code side; rotate the secret), S-16 … S-29, S-31 … S-45, M-01 … M-19, M-21 … M-46, R-01 … R-15, W-01 … W-14, O-01 … O-13, A-01 … A-05, all Lows in §6b/§6c/§6d and the doc mismatches in §7 |
+| ✅ fixed | D-01 (files rewritten), D-02 (ignored), D-03 … D-08, S-01 … S-14, S-15 (code side; rotate the secret), S-16 … S-29, S-31 … S-45, M-01 … M-19, M-21 … M-46, R-01 … R-15, W-01 … W-14, O-01 … O-13, A-01 … A-05, C-01 … C-08, all Lows in §6b/§6c/§6d and the doc mismatches in §7 |
 | ℹ️ not a bug | S-30 (KYC is enforced; the real gap was S-32), M-20 (matches ADMIN.md) |
 | ⏳ open | none in code; rotate the leaked sandbox secret (S-15), confirm Dilmune hosting details, and get a finance decision on credit payouts (§6c) |
 
@@ -76,9 +76,11 @@ fence, S-34), `settlement/reconciliationPayout.new.test.ts` (M-27),
 M-45, S-43), `routes/webhooksFourth.new.test.ts` (W-11 … W-13, S-42),
 `apps/reporting/src/consumer/settlementPaid.new.test.ts` (R-15); in Go
 `settlement/fourth_pass_test.go` (M-35, M-38 … M-42), `ledger/repair_test.go`
-(O-11), `splits/payout_estimate_test.go` (M-46).
+(O-11), `splits/payout_estimate_test.go` (M-46). Capacity (§6e):
+`plugins/overload.new.test.ts` (C-01), `acquirer/simulatorCacheBound.new.test.ts`
+(C-07); load test `scripts/loadtest/checkout.ts`.
 
-**Verification:** `npm test` (events 4, money 40, api 416, reporting 14,
+**Verification:** `npm test` (events 4, money 40, api 421, reporting 14,
 web 9, scripts 7) and `go test -count=1 -p 1 ./...` in `apps/settlement`
 pass against a freshly migrated Postgres (local Go 1.21 needs
 `GOTOOLCHAIN=go1.22.0`; `go 1.22` in go.mod is not a downloadable toolchain
@@ -1250,6 +1252,80 @@ Covered by `routes/lowsFollowups.new.test.ts` and
 - Removed: `lib/decimal.ts` (cents helpers), `notifySettlementRefundAdjustment`,
   `parsePromotionalDiscountFils`, Go `SchemeAmountBD` (float). Calling any of
   them would have reintroduced D-01-style unit bugs.
+
+---
+
+## 6e. Capacity and hosting (load test, restart, resource limits)
+
+Found while load-testing the checkout scenario at the brief's budget (api
+0.5 vCPU / 512 MB). Method and numbers: `ops/CAPACITY.md`.
+
+### C-01 · High · Overload turns into 500s and timeouts instead of a fast "busy"
+- *What:* under overload every request was admitted and queued for a pool
+  connection; when `pg-pool`'s connection timeout hit, the error handler
+  answered 500.
+- *Why:* nothing bounded the work admitted; a pool timeout fell through to
+  the generic 500.
+- *Impact:* buyers see failures that look like bugs, retries pile on, and
+  latency grows without limit.
+- ✅ `plugins/overload.ts` sheds with `503` + `Retry-After: 1` when in-flight
+  requests, the pool wait queue or event-loop delay pass their limits
+  (`OVERLOAD_*`, health probes exempt); a pool timeout is now 503
+  `db_pool_timeout`. Paying is idempotent, so the retry is safe.
+
+### C-02 · High · A hung api is never restarted
+- *What:* a frozen node process (tested with `SIGSTOP`) stayed down forever.
+- *Why:* Docker restarts containers that *exit*; a failing healthcheck only
+  marks them unhealthy.
+- ✅ The healthcheck counts consecutive `/healthz` failures and kills the
+  process after three; tini (`init: true`) exits and `restart:
+  unless-stopped` starts a fresh api (~40 s end to end).
+
+### C-03 · Medium · nginx kept the dead api's address after a restart
+- *Why:* `proxy_pass http://api:3000` resolves once at nginx start; a
+  restarted api container can get a new IP.
+- ✅ `upstream` with `server api:3000 resolve` and Docker's resolver, plus
+  keep-alive to the api.
+
+### C-04 · Medium · api resource budget not enforced
+- *What:* the brief limits the api to 0.5 vCPU and 512 MB; compose set
+  neither, so under load the api starved Postgres on a 1 vCPU box.
+- ✅ `cpus: 0.5`, `mem_limit`/`memswap_limit: 512m`, and
+  `--max-old-space-size=320` so V8 exits (and restarts) before the cgroup
+  OOM-kills it mid-transaction.
+
+### C-05 · Low · `npx tsx` wrappers in the api and reporting containers
+- *Why:* `npx` → `tsx` → `node` kept two extra node processes (~100 MB) and
+  `npx` didn't forward SIGTERM, so shutdown was a hard kill after the grace
+  period instead of the graceful drain in `index.ts`.
+- ✅ `node --import tsx …` as the only process, under tini.
+
+### C-06 · Medium · Capture seq-scans the ledger and holds
+- *What:* every capture's deferred `check_ledger_group_balance` trigger
+  filtered `ledger_entries` by `entry_group_id`, and capture/void looked up
+  `holds` by `transaction_id`; neither column was indexed.
+- *Impact:* capture cost grows with ledger size, while holding the
+  merchant's balance-row lock.
+- ✅ Migration 0086 adds both indexes.
+
+### C-07 · Low · Acquirer simulator caches grow forever
+- *Why:* the authorize/capture/refund idempotency maps were never trimmed
+  (the "not a leak" comment was wrong for a long-running process).
+- ✅ Bounded FIFO (`ACQUIRER_IDEMPOTENCY_CACHE_SIZE`, default 10,000).
+
+### C-08 · Medium · No TLS in the reproducible stack
+- *Why:* HTTPS depended on a hand-installed Caddy on the host, so `docker
+  compose up` alone could not reproduce the hosted setup.
+- ✅ `caddy` service behind the `https` profile (`ops/Caddyfile`,
+  `SITE_HOST`), certificates in a volume.
+
+### Known limit (documented, not changed)
+- Authorize and capture hold a database transaction and the merchant's
+  balance-row lock across the simulated acquirer call (100–400 ms). That
+  caps per-merchant throughput and ties up a pool connection per in-flight
+  pay. Moving the acquirer call outside the transaction changes the payment
+  state machine and its crash recovery, so it is left for a reviewed change
+  (`ops/CAPACITY.md`).
 
 ---
 

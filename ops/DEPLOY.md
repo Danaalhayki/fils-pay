@@ -40,7 +40,28 @@ elsewhere and push them to a registry (see the last section).
    should show `Exited (0)` and the api `healthy`.
 
 5. Put TLS in front. With `NODE_ENV=production` cookies are `Secure`, so
-   login does not work over plain http. Caddy on the VM is the shortest path:
+   login does not work over plain http. The compose file has a Caddy
+   service behind the `https` profile (`ops/Caddyfile`): set a hostname that
+   resolves to the VM and bring the stack up with the profile:
+
+   ```
+   SITE_HOST=pay.example.bh          # or 157-245-99-130.sslip.io for an IP-only box
+   PUBLIC_WEB_URL=https://pay.example.bh
+   TRUST_PROXY_HOPS=2
+   ```
+
+   ```
+   docker compose --profile https up -d --build
+   ```
+
+   The merchant site is then `https://SITE_HOST` and the admin console
+   `https://SITE_HOST:8443` (open 8443 in the firewall, or leave it closed
+   and reach the admin through an SSH tunnel to 127.0.0.1:8081). Caddy keeps
+   its certificates in the `caddy_data` volume. If Caddy is also installed
+   on the host, stop it first (`sudo systemctl disable --now caddy`); both
+   want ports 80 and 443.
+
+   Alternatively, run Caddy on the host instead of in compose:
 
    ```
    pay.example.bh {
@@ -68,8 +89,8 @@ Build and push the four images, then recreate the compose services there:
 | Image | Dockerfile | Command | Needs |
 |---|---|---|---|
 | node | `ops/Dockerfile.node` | `npm run migrate` (one-off job, run first) | `DATABASE_URL` |
-| node | `ops/Dockerfile.node` | `npx tsx apps/api/src/index.ts` | api settings from `.env.example`, a persistent volume at `/app/data/kyc` |
-| node | `ops/Dockerfile.node` | `npx tsx apps/reporting/src/index.ts` | `DATABASE_URL` |
+| node | `ops/Dockerfile.node` | `node --import tsx apps/api/src/index.ts` | api settings from `.env.example`, a persistent volume at `/app/data/kyc`, 0.5 vCPU / 512 MB |
+| node | `ops/Dockerfile.node` | `node --import tsx apps/reporting/src/index.ts` | `DATABASE_URL` |
 | settlement | `ops/Dockerfile.go` | `./settlement daemon` | `DATABASE_URL`, `SETTLEMENT_INTERNAL_TOKEN` |
 | web | `ops/Dockerfile.web` (build arg `PUBLIC_WEB_URL`) | nginx | api reachable as `api:3000` |
 
@@ -85,6 +106,9 @@ api with `X-Forwarded-*` headers.
 ## After deploying
 
 - `curl https://pay.example.bh/healthz` and `/readyz` (proxied to the api).
+- `docker inspect filspay-api-1 --format '{{.HostConfig.NanoCpus}} {{.HostConfig.Memory}}'`
+  should print `500000000 536870912` (0.5 vCPU, 512 MB).
+- Capacity check and estimate: `ops/CAPACITY.md`.
 - Demo data: `docker compose --profile seed run --rm seed` refuses
   `NODE_ENV=production`; create merchants through signup instead, or seed
   a separate non-production instance.
