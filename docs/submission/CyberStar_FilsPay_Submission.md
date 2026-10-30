@@ -3,7 +3,7 @@
 | Cover | |
 |---|---|
 | **Team** | CyberStar |
-| **Members** | Dana Alhayki — _[what Dana owned]_ <br> Aljazi Almujaddam — _[what Aljazi owned]_ |
+| **Members** | Dana Alhayki and Aljazi Almujaddam — worked together on every phase: audit, fixes, refunds, deployment, load testing and the write-up |
 | **Repository (public fork)** | https://github.com/Danaalhayki/fils-pay (fork of `MJ5-byte/fils-pay`) |
 | **Last commit before the deadline** | `[commit id from GitHub]` |
 
@@ -296,19 +296,64 @@ test that proves it.
 
 ## 5. UI and UX changes
 
-_Screenshots: before = original code (`git checkout 8b58b0f`), after = live site._
+_"After" screenshots were taken from the live site on 30 Oct 2026 after a
+partial refund (21.937 of 43.874 BD) and a full refund (7.113 BD) made
+through the dashboard API. "Before" describes the original code (challenge
+commit `8b58b0f`); the matching `BUGS.md` entry explains the cause._
 
-| # | Change | Why it mattered | Before | After |
-|---|---|---|---|---|
-| 1 | Refunds work from the transaction drawer (R-01) | the drawer posted to a route that did not exist; refunds were impossible | _[screenshot]_ | _[screenshot]_ |
-| 2 | Refund drawer can't refund twice (R-12, M-34) | a double click or retry sent a second refund with a new idempotency key | _[screenshot]_ | _[screenshot]_ |
-| 3 | Refunded amount shown on transactions (R-13) | merchants could not see what had been refunded | _[screenshot]_ | _[screenshot]_ |
-| 4 | Negative amounts render instead of a white screen (M-26) | one refund or adjustment blanked the whole dashboard | _[screenshot]_ | _[screenshot]_ |
-| 5 | Dashboard fee shows the rate actually charged, 225 bps (M-07) | it showed 245 bps | _[screenshot]_ | _[screenshot]_ |
-| 6 | "View as merchant" opens a read-only dashboard (S-43, S-09) | it bounced to login; when it worked it had owner powers | _[screenshot]_ | _[screenshot]_ |
-| 7 | Date filters and "yesterday" use Bahrain days (M-29, Lows) | the last three hours of each day were in the wrong day | _[screenshot]_ | _[screenshot]_ |
-| 8 | `/` and unknown paths redirect instead of "Unexpected Application Error 404" | the site root was an error page | _[screenshot]_ | _[screenshot]_ |
-| 9 | Dashboards reach the API (O-07) | neither dashboard worked against a running API | _[screenshot]_ | _[screenshot]_ |
+**5.1 Refunds work, with the refunded amount and negative amounts shown
+(R-01, R-12, R-13, M-26).**
+*Before:* the refund drawer posted to `/v1/merchants/:id/refunds`, which
+did not exist (and `/v1/refunds` answered 501), so no refund was possible; a
+double click would have sent a second refund with a new idempotency key; the
+transaction had no refunded amount; and `bhd()` threw on a negative number,
+so the first refund line in a timeline blanked the whole dashboard.
+*After:* status `partially_refunded`, "Refunded amount 21.937 BHD", the
+refund line shown as −21.937 BHD, and the Refund button still offered for the
+remaining 21.937 BHD.
+
+![Partial refund on the live dashboard](img/01-partial-refund-after.png)
+
+**5.2 Full refund and refund statuses in the transaction list (R-09).**
+*Before:* a full refund of a partial capture was labelled
+`partially_captured`. *After:* `refunded` and `partially_refunded` are
+filterable statuses and show in the list.
+
+![Full refund](img/03-full-refund-after.png)
+
+![Transaction list with refund statuses](img/09-transactions-after.png)
+
+**5.3 Reconciliation ties out (M-23, M-27).**
+*Before:* every paid batch appeared as a large negative gap ("not
+reconciled") on the default 30-day window, and pending amounts ignored
+refunds. *After:* "Reconciled — no gap" with the refunds included.
+
+![Reconciliation, no gap](img/12-reconciliation-after.png)
+
+**5.4 Settlement batches show refunds (R-06).**
+*Before:* the close ignored refunds and paid the merchant the full gross.
+*After:* each batch has a Refunds column and nets them into the payout.
+
+![Settlement batches with a Refunds column](img/11-settlement-after.png)
+
+**5.5 The rate shown is the rate charged: 225 bps (M-07).**
+*Before:* the screen showed 245 bps (the most recently *inserted* fee row, a
+backfill) while payments were charged 225 bps. *After:* the effective-dated
+rate, "2.25 % (225 bps), effective 8/1/2026".
+
+![Admin merchant page with the effective rate](img/06-admin-merchant-after.png)
+
+**5.6 The site root opens the sign-in page (router fix).**
+*Before:* `https://…/` showed "Unexpected Application Error! 404 Not
+Found". *After:* `/` and unknown paths redirect to the dashboard (sign-in
+when logged out).
+
+![Root URL redirects to sign-in](img/08-root-redirect-after.png)
+
+**5.7 Checkout.** Same page, but the server now judges expiry on its own
+clock (M-12) and a link can only be paid once (M-11).
+
+![Checkout page for the demo link](img/10-checkout-after.png)
 
 <div class="pagebreak"></div>
 

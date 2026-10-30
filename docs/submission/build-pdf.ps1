@@ -25,7 +25,7 @@ th { background: #eef6f0; }
 code { font-family: Consolas, monospace; font-size: 8.8pt; background: #f3f3f3; padding: 0 2px; }
 pre { background: #f6f8f7; border: 1px solid #ddd; padding: 8px; font-size: 7.6pt; line-height: 1.25; white-space: pre; overflow: hidden; page-break-inside: avoid; }
 pre code { background: none; padding: 0; font-size: inherit; }
-td img { max-width: 100%; max-height: 60mm; border: 1px solid #ddd; }
+img { display: block; max-width: 92%; max-height: 105mm; margin: 6px auto 12px; border: 1px solid #ccc; page-break-inside: avoid; }
 .pagebreak { page-break-before: always; }
 .appendix-title { page-break-before: always; }
 "@
