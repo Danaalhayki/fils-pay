@@ -1,0 +1,142 @@
+# FilsPay stack: Postgres, the three services that talk to it (apps/api,
+# apps/settlement, apps/reporting), and nginx serving apps/web + apps/admin.
+#
+#   cd ops
+#   cp .env.example .env        # optional for local; required when hosted
+#   docker compose up --build
+#   docker compose --profile seed run --rm seed   # demo data (local only)
+#
+# `migrate` runs before every service starts. `seed` wipes the database, so
+# it never runs as part of `up`; it is opt-in through the `seed` profile and
+# refuses NODE_ENV=production and non-local databases (db/seed/index.ts).
+#
+# Settings come from ops/.env (gitignored; see .env.example). Defaults below
+# are for a laptop only: NODE_ENV=development, the dev webhook key, and a
+# dev internal token. With NODE_ENV=production the api refuses to boot
+# without real values for every secret.
+
+name: filspay
+
+x-database-url: &database-url postgres://filspay:${POSTGRES_PASSWORD:-filspay_dev_password}@postgres:5432/filspay?sslmode=disable
+
+x-node-service: &node-service
+  build:
+    context: ..
+    dockerfile: ops/Dockerfile.node
+  image: filspay-node:local
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: filspay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-filspay_dev_password}
+      POSTGRES_DB: filspay
+    # Loopback only: the database is never published to the network.
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - filspay_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filspay -d filspay"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    <<: *node-service
+    restart: "no"
+    command: ["npm", "run", "migrate"]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  seed:
+    <<: *node-service
+    restart: "no"
+    profiles: ["seed"]
+    command: ["npm", "run", "seed"]
+    environment:
+      DATABASE_URL: *database-url
+      NODE_ENV: ${NODE_ENV:-development}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    <<: *node-service
+    command: ["npx", "tsx", "apps/api/src/index.ts"]
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: "3000"
+      DATABASE_URL: *database-url
+      # nginx (web service) is one hop; add one per terminator in front of it.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      SETTLEMENT_INTERNAL_URL: http://settlement:8091
+      SETTLEMENT_INTERNAL_TOKEN: ${SETTLEMENT_INTERNAL_TOKEN:-dev-internal-token}
+      WEBHOOK_SECRET_ENCRYPTION_KEY: ${WEBHOOK_SECRET_ENCRYPTION_KEY:-}
+      ACQUIRER_CALLBACK_SIGNING_SECRET: ${ACQUIRER_CALLBACK_SIGNING_SECRET:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
+      OTP_DEV_EXPOSE: ${OTP_DEV_EXPOSE:-}
+      CHECKOUT_BASE_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
+      KYC_UPLOAD_DIR: /app/data/kyc
+    volumes:
+      - kyc_uploads:/app/data/kyc
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/readyz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  settlement:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.go
+    restart: unless-stopped
+    command: ["./settlement", "daemon"]
+    environment:
+      DATABASE_URL: *database-url
+      SETTLEMENT_INTERNAL_TOKEN: ${SETTLEMENT_INTERNAL_TOKEN:-dev-internal-token}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  reporting:
+    <<: *node-service
+    command: ["npx", "tsx", "apps/reporting/src/index.ts"]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.web
+      args:
+        PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
+    restart: unless-stopped
+    # Loopback unless the operator opts in: the admin console must not be on
+    # the public network by accident. Publish through an https terminator
+    # (ops/DEPLOY.md), or set e.g. WEB_PORT=0.0.0.0:8080 deliberately.
+    ports:
+      - "${WEB_PORT:-127.0.0.1:8080}:8080"
+      - "${ADMIN_PORT:-127.0.0.1:8081}:8081"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  filspay_pgdata:
+  kyc_uploads:

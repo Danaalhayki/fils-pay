@@ -1,0 +1,31 @@
+# Cursor rules — FilsPay monorepo
+# Full conventions: AGENTS.md. The accepted ADRs in docs/adr/ are the rules;
+# if this file disagrees with an ADR, the ADR wins.
+
+# Money (ADR-0001)
+# Integer fils everywhere: 1 BD = 1000 fils, whole fils only. No floats,
+# no cents. Parse text amounts with parseBhdToFils. Monetary columns are
+# BIGINT; Go uses int64.
+
+# Settlement timing (ADR-0003)
+# The business day closes at midnight Asia/Bahrain (UTC+3). Date-only
+# parameters mean Bahrain midnight; `to` is exclusive.
+
+# Security
+# Every client-presentable token or code (sessions, API keys, OTPs,
+# payment-link tokens, invite codes) uses node:crypto. Handlers check role
+# and merchant scope themselves. Impersonation is read-only.
+
+# Refunds
+# POST /v1/refunds and the refund.succeeded webhook event are live.
+
+# Frozen packages
+# packages/money and apps/settlement/internal/money need finance sign-off.
+
+# Tests
+# Prefer new test files. A test that locks in a bug may be corrected; record
+# why in BUGS.md.
+
+# Build verification (sequentially; shared DB)
+# npm test
+# cd apps/settlement && go test -count=1 -p 1 ./...

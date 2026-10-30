@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+npm-debug.log*
+.DS_Store
+.claude/
+# KYC uploads (KYC_UPLOAD_DIR defaults to ./data/kyc): merchant identity documents
+data/
