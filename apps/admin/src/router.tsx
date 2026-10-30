@@ -32,4 +32,5 @@ export const router = createBrowserRouter([
       { path: "/webhooks/:merchantId", element: <WebhookReplayPage /> },
     ],
   },
+  { path: "*", element: <Navigate to="/" replace /> },
 ]);
