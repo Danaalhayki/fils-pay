@@ -58,25 +58,56 @@ time out. No 500s, every paid link stayed paid, no link was paid twice.
 
 ## Measured (hosted box)
 
-Fill in from a run against the live server (1 vCPU shared by Postgres,
-settlement, reporting, nginx and Caddy, so expect less than locally):
+Dilmune VM (1 vCPU / 2 GB, shared by Postgres, settlement, reporting,
+nginx and Caddy; api capped at 0.5 vCPU / 512 MB), driven over the internet
+from a laptop in Bahrain through `https://157-245-99-130.sslip.io`.
+30 s per stage, 2026-10-30, commit `4fbd4b6`. Latency is page + read + pay
+as the buyer sees it, so it includes three internet round trips.
 
-| VUs | checkouts/s | p95 checkout | 503 shed | 5xx | double pays |
-|----:|------------:|-------------:|---------:|----:|------------:|
-| 5   | | | | | |
-| 10  | | | | | |
-| 20  | | | | | |
-| 50  | | | | | |
+| VUs | checkouts/s | p50 | p95 | p99 | 503 shed | 5xx | double pays |
+|----:|------------:|----:|----:|----:|---------:|----:|------------:|
+| 5   | 3.8  | 1.10 s | 1.43 s | 1.67 s | 0 | 0 | 0 / 5  |
+| 10  | 8.0  | 1.05 s | 1.31 s | 1.45 s | 0 | 0 | 0 / 12 |
+| 20  | 13.4 | 1.18 s | 1.84 s | 3.21 s | 0 | 0 | 0 / 20 |
+| 50  | 19.1 | 2.12 s | 2.84 s | 3.17 s | 0 | 0 | 0 / 29 |
+
+1,329 checkouts in total. The other pay outcomes are the simulator doing
+its job, not faults: `402` declines (34) and `502 acquirer_unavailable` (18)
+are `ACQUIRER_FAILURE_RATE` (2 % per acquirer call, 70 % of those declines,
+the rest errors; 52 of 1,381 pays = 3.8 %, as expected over authorize +
+capture), and every `409` (66) is the second request of a double-pay probe
+being refused. After the run all 190 sampled paid links were still `paid`, and no
+probe got two `200`s.
+
+Throughput still rises from 20 to 50 VUs but p50 doubles: the box is close
+to its knee at ~20 checkouts/s.
+
+Overload run, same setup, 10 s per stage:
+
+| VUs | checkouts/s | p50 | p95 | 503 shed | 5xx | double pays |
+|----:|------------:|----:|----:|---------:|----:|------------:|
+| 100 | 18.3 | 4.13 s | 6.70 s  | 54  | 0 | 0 / 9  |
+| 150 | 23.1 | 4.44 s | 11.39 s | 345 | 0 | 0 / 12 |
+
+Past ~50 VUs the api sheds instead of queueing: 399 requests answered `503`
++ `Retry-After` (on create, read and pay alike), still zero 5xx, and
+throughput holds at ~20 checkouts/s instead of collapsing. Latency here
+includes the clients' 1 s back-off after each 503. All 138 sampled paid
+links were still `paid`; no probe got two `200`s.
 
 ## Estimate
 
-- **Sustainable:** ~25 checkouts/s (≈ 90,000 an hour) with p95 under
-  ~1.5 s, at ~20 concurrent buyers mid-payment. Real buyers spend tens of
-  seconds on the checkout page between steps, so that is several hundred
-  buyers on the site at once.
-- **Ceiling:** ~30 checkouts/s; the api's 0.5 vCPU is saturated.
+- **Sustainable on the hosted box:** ~20 concurrent buyers mid-payment,
+  ~13 checkouts/s (≈ 48,000 an hour), p95 under 2 s.
+- **Upper end:** ~50 concurrent buyers, ~19 checkouts/s, p95 under 3 s.
+  Locally, with the whole machine free for Postgres, the same api limits
+  topped out at ~30 checkouts/s, so the hosted ceiling is the shared
+  1 vCPU (api at 0.5, Postgres and the rest on the remainder).
+- Real buyers spend tens of seconds on the checkout page between steps, so
+  20–50 buyers *mid-payment* means several hundred on the site at once.
 - **Beyond it:** requests are shed with `503` + `Retry-After: 1` rather than
-  piling up. Paying is idempotent, so a client retry is safe.
+  piling up (measured live at 100 and 150 VUs above). Paying is idempotent,
+  so a client retry is safe.
 - **To go further:** raise the api's CPU share first (it is the bottleneck),
   then move the acquirer call out of the database transaction so a pay holds
   a connection and the balance row only for the ledger writes.

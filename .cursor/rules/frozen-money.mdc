@@ -1,0 +1,9 @@
+---
+description: Frozen money packages need finance sign-off
+globs: packages/money/**, apps/settlement/internal/money/**
+alwaysApply: false
+---
+
+These packages need finance sign-off to change. Do not edit them. If one
+looks wrong, write the finding in `BUGS.md` (what, why, impact, proposed
+fix) and leave the code as it is. `.cursor/cli.json` also denies writes here.

@@ -1,0 +1,49 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(git:status*)",
+      "Shell(git:diff*)",
+      "Shell(git:log*)",
+      "Shell(git:show*)",
+      "Shell(npm:test*)",
+      "Shell(npm:run*)",
+      "Shell(npx:tsx*)",
+      "Shell(npx:tsc*)",
+      "Shell(go:test*)",
+      "Shell(go:vet*)",
+      "Shell(docker:compose ps*)",
+      "Shell(docker:compose logs*)",
+      "Shell(docker:compose config*)",
+      "Shell(docker:inspect*)",
+      "Shell(docker:stats*)",
+      "Read(**)",
+      "Write(apps/**)",
+      "Write(packages/events/**)",
+      "Write(db/migrations/**)",
+      "Write(db/seed/**)",
+      "Write(scripts/**)",
+      "Write(ops/**)",
+      "Write(docs/**)",
+      "Write(BUGS.md)"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(ops/.env)",
+      "Write(**/.env)",
+      "Write(ops/.env)",
+      "Write(packages/money/**)",
+      "Write(apps/settlement/internal/money/**)",
+      "Write(docs/adr/**)",
+      "Shell(git:push*)",
+      "Shell(git:reset --hard*)",
+      "Shell(git:clean*)",
+      "Shell(git:rebase*)",
+      "Shell(docker:compose down*)",
+      "Shell(docker:volume rm*)",
+      "Shell(docker:system prune*)",
+      "Shell(npm:run seed*)",
+      "Shell(rm)",
+      "Shell(Remove-Item)"
+    ]
+  }
+}

@@ -128,6 +128,9 @@ services:
       dockerfile: ops/Dockerfile.go
     restart: unless-stopped
     command: ["./settlement", "daemon"]
+    # SIGTERM lets an in-flight batch commit or roll back; the internal API
+    # waits up to 30 s for it, so Docker must not SIGKILL at its 10 s default.
+    stop_grace_period: 60s
     environment:
       DATABASE_URL: *database-url
       SETTLEMENT_INTERNAL_TOKEN: ${SETTLEMENT_INTERNAL_TOKEN:-dev-internal-token}

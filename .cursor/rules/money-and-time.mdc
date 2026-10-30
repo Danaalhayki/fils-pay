@@ -1,0 +1,19 @@
+---
+description: Money units, rounding and the Bahrain business day for any code that touches amounts, fees, ledger, settlement or dates
+globs: apps/api/src/**/*.ts, apps/settlement/**/*.go, apps/reporting/src/**/*.ts, db/migrations/**/*.sql, scripts/**/*.ts
+alwaysApply: false
+---
+
+- Amounts are integer fils: 1 BD = 1000 fils (ADR-0001). Never floats,
+  never "cents", never `parseFloat` on an amount. Parse text with
+  `parseBhdToFils`; it rejects sub-fil input instead of rounding.
+- Money columns are `BIGINT`, Go uses `int64`. Sums, counters and estimates
+  are never narrowed to `INTEGER` / `int32` / `float32`.
+- Rates are basis points applied with the `packages/money` helpers. Rounding
+  only where an ADR names the rule (ADR-0002 scheme truncation + residue).
+- The business day closes at midnight Asia/Bahrain (ADR-0003); calendar
+  months are Bahrain months (ADR-0009). Date-only params mean Bahrain
+  midnight and `to` is exclusive. Expiry and cutoffs use the server clock.
+- `ledger_entries` is append-only; correct with reversing entries. The
+  balance cache is maintained by the 0081 trigger, not by hand (ADR-0008).
+- If a doc, comment or rule file disagrees with an ADR, the ADR wins.

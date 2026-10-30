@@ -1,0 +1,15 @@
+---
+description: Writing database migrations
+globs: db/migrations/**
+alwaysApply: false
+---
+
+- `db/migrate.ts` records applied filenames only (no checksum), so editing
+  an applied migration silently does nothing on existing databases. Never
+  edit one; add the next numbered file (`NNNN_snake_case.sql`).
+- Migrations must be safe to run on the live database: `IF NOT EXISTS`,
+  backfills that are idempotent, no destructive rewrites of paid history.
+  When a migration fixes existing data, keep the old rows somewhere finance
+  can review (see 0077's `_duplicates` table) and say so in `BUGS.md`.
+- Money columns are `BIGINT`. `ledger_entries` stays append-only.
+- After adding one: `npm run migrate` against the test DB, then both suites.

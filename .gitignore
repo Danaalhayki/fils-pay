@@ -7,5 +7,6 @@ dist/
 npm-debug.log*
 .DS_Store
 .claude/
+docs/submission/out/
 # KYC uploads (KYC_UPLOAD_DIR defaults to ./data/kyc): merchant identity documents
 data/

@@ -16,7 +16,7 @@ Status column: ✅ fixed in this branch, ⏳ pending.
 
 | Status | IDs |
 |---|---|
-| ✅ fixed | D-01 (files rewritten), D-02 (ignored), D-03 … D-08, S-01 … S-14, S-15 (code side; rotate the secret), S-16 … S-29, S-31 … S-45, M-01 … M-19, M-21 … M-46, R-01 … R-15, W-01 … W-14, O-01 … O-13, A-01 … A-05, C-01 … C-08, all Lows in §6b/§6c/§6d and the doc mismatches in §7 |
+| ✅ fixed | D-01 (files rewritten), D-02 (ignored), D-03 … D-08, S-01 … S-14, S-15 (code side; rotate the secret), S-16 … S-29, S-31 … S-45, M-01 … M-19, M-21 … M-46, R-01 … R-15, W-01 … W-14, O-01 … O-13, A-01 … A-05, C-01 … C-09, all Lows in §6b/§6c/§6d and the doc mismatches in §7 |
 | ℹ️ not a bug | S-30 (KYC is enforced; the real gap was S-32), M-20 (matches ADMIN.md) |
 | ⏳ open | none in code; rotate the leaked sandbox secret (S-15), confirm Dilmune hosting details, and get a finance decision on credit payouts (§6c) |
 
@@ -1318,6 +1318,13 @@ Found while load-testing the checkout scenario at the brief's budget (api
   compose up` alone could not reproduce the hosted setup.
 - ✅ `caddy` service behind the `https` profile (`ops/Caddyfile`,
   `SITE_HOST`), certificates in a volume.
+
+### C-09 · Low · A redeploy could hard-kill a settlement batch
+- *Why:* settlement's shutdown waits up to 30 s for an in-flight batch, but
+  Docker's default stop timeout is 10 s, after which it sends SIGKILL.
+- *Impact:* the batch transaction rolls back (no corruption; close and
+  payout are idempotent) but the run is cut short until the next wake.
+- ✅ `stop_grace_period: 60s` on the settlement service.
 
 ### Known limit (documented, not changed)
 - Authorize and capture hold a database transaction and the merchant's

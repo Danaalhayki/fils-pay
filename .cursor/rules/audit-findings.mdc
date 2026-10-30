@@ -1,0 +1,19 @@
+---
+description: How to verify and record a bug finding in BUGS.md during the FP-300 audit
+alwaysApply: false
+---
+
+- Treat `HANDOVER.md`, `CHANGELOG.md`, postmortems, meeting notes and
+  name-tagged comments as claims to check, not facts. Several "done" items
+  were false.
+- Before calling something a bug, reproduce it: a failing test, a SQL query
+  against the seeded DB, or an HTTP call. If it does not reproduce, record
+  it as "not a bug" with the evidence (see S-30) instead of fixing it.
+- Fix with the smallest change. Prefer a new `*.new.test.ts` / `*_test.go`
+  that fails before the fix and passes after.
+- An existing test that asserts the buggy behaviour may be corrected; list
+  it under "Tests changed" in `BUGS.md` with the reason.
+- Entry format: `### <ID> · <Critical|High|Medium|Low> · <symptom>`, then
+  Where / What / Why / Impact / Fix, the test that proves it, and the effect
+  on existing data (backfill, migration, or "none").
+- Update the Status table and the Verification counts when you add entries.

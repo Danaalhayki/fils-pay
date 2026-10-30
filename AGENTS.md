@@ -74,6 +74,17 @@ and this file is the one to fix.
 - Merchant-facing exports stream page by page (keyset on
   `(occurred_at, id)`) and escape CSV formula characters.
 
+## Agent tooling in this repo
+
+- `.cursor/rules/*.mdc`: scoped rules (money and time, frozen money
+  packages, migrations, how to record an audit finding).
+- `.cursor/skills/`: `/verify` (all suites, in order), `/record-finding`
+  (reproduce, fix, write up in `BUGS.md`), `/loadtest` (capacity run).
+- `.cursor/cli.json`: permission rules. Agents may run tests and read
+  logs; they may not push, reset, prune volumes, seed, read `.env`, or
+  write to the frozen money packages or the ADRs.
+- `scripts/ai/verify.ps1` / `verify.sh`: the sequential verification run.
+
 ## Tests
 
 - Run both suites after a change; they share the database, so run them one
